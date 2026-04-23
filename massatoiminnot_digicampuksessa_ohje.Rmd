@@ -1,0 +1,419 @@
+---
+title: "Massatoiminnot Digicampuksessa"
+author: "Arho Toikka"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+## Johdanto
+
+Tässä ohjeessa kuvataan R-skriptien käyttö Moodle-ympäristön (erityisesti Digicampuksen alustan) massatoimintoihin verkkokurssilla. Skriptit on kehitetty kursseja *Yhteiskunta tänään* ja *Johdatus sosiaalitieteisiin* varten, mutta ne on suunniteltu uudelleenkäytettäviksi mille tahansa Moodle-pohjaiselle kurssille.
+
+### Tiedostorakenne
+
+Kokoelma jakautuu kahteen tyyppiin:
+
+- **`helpers_*.R`** — funktiokirjastot. Sisältävät uudelleenkäytettävät funktiot. Ei ajeta suoraan.
+- **`run_*.R`** — ajoskriptit. Jokaisessa on `KONFIGURAATIO`-osio, johon asetetaan kurssikohtaiset polut ja parametrit, minkä jälkeen skripti ajetaan kokonaan.
+
+Tyypillinen käyttö:
+
+1. Avaa sopiva `run_`-tiedosto.
+2. Muokkaa `KONFIGURAATIO`-osion polut ja parametrit kurssikohtaisesti.
+3. Aja koko skripti (`Ctrl+Shift+Enter` tai `Source`).
+
+### Yleiset riippuvuudet
+
+Asenna nämä paketit kerran ennen ensimmäistä käyttöä:
+
+```{r paketit}
+install.packages(c(
+  "tidyverse", "readxl", "writexl", "readr",
+  "rvest", "xml2", "cld2", "text2vec"
+))
+```
+
+### Moodlen progress-CSV:n rakenne
+
+Moodlen aktiviteettisuoritusraportti on muodoltaan hankala: ensimmäinen sarake (opiskelijan nimi) ei saa otsikkoa, ja jokaisen tehtäväsarakkeen vieressä on ylimääräinen sarake pelkkää määräpäivää varten. Lisäksi tiedosto alkaa usein kymmenillä ilmoitussarakkeilla (otsikko alkaa päivämäärällä: `"16.5.2025 Yhteenveto..."`).
+
+Käytä `read_moodle_progress()`-funktiota:
+
+```{r read-progress}
+source("helpers_read_files.R")
+
+progress <- read_moodle_progress(
+  "teemaviikkojen_arviot/progress.csv",
+  encoding = "UTF-8"   # kokeile "windows-1252" jos erikoismerkit menee pieleen
+)
+
+# Kaikki säilytetyt sarakkeet (tehtävät + Nimi + Sähköpostiosoite):
+names(progress)
+```
+
+Funktio pitää sarakkeet, joiden otsikossa on `)` (tehtäväkoodit kuten `J1)`, `1A)`, `3B)`) ja hylkää:
+- ilmoitussarakkeet (`16.5.2025 ...`)
+- määräpäiväsarakkeet (`2023-02-03 05:00:00`)
+- tyhjät otsikkosarakkeet (`...3`, `...17` jne.)
+
+### Moodlen vientitiedostot
+
+Skriptit käyttävät seuraavia Moodlesta ladattavia tiedostoja. Sarakkeen "Mistä ladataan Moodlessa" ohje on suomenkielisen Moodle-käyttöliittymän mukainen. Tällä hetkellä skritpit olettavat, että lataat tiedostot suomenkielisestä näkymästä (Moodlen tiedostojen sarakenimet ovat käyttöjärjestelmän kielellä).
+
+| Tiedostotyyppi | Mistä ladataan Moodlessa |
+|---|---|
+| **Arvioinnit-Excel** | Arvioinnit → Vie → Excel | (Oletus on OpenDocument, muista valita Excel-muoto)
+| **Progress-CSV** | Raportit -> Aktiviteettien suoritus → Lataa laskentataulukko-muodossa (UTF-8.csv) |
+| **Avotentti-vastaukset CSV** | Tentti → Tulokset → alasvetovalikosta Vastaukset -> Lataa taulukon tiedot tiedostoksi → .csv |
+| **Esseepalaututukset (ZIP)** | Tehtävä → Palautukset -> Toiminnot -> Lataa kaikki palautukset zip-tiedostona |
+
+ZIP-pakkaus puretaan hakemistoon sellaisenaan — Moodle luo automaattisesti yhden alihakemiston per opiskelija.
+
+---
+
+## 1. Tiedostojen lukeminen hakemistosta
+
+**Tiedosto:** `helpers_read_files.R`
+
+Moodle vie oletuksena esseepalaututukset ZIP-pakkauksena, jossa jokaisella opiskelijalla on oma alihakemistonsa. Funktio lukee kaikki palautukset yhdeksi data frameksi.
+
+```{r read-essays}
+source("helpers_read_files.R")
+
+esseet <- read_directory_files_essay_files_in_separate_directories(
+  path_used = "hakemisto/esseet_arvioitavaksi/",
+  file_name = "verkkoteksti.html"   # Moodlen oletusnimi
+)
+
+# Tuloksena: name (opiskelijan nimi), teksti, id
+head(esseet)
+```
+
+Jos lataat tiedostot Moodlesta yhdessä kansiossa (eli poistat oletusvalinnan), käytä tätä funktiota:
+- `read_directory_essay_files_in_one_directory()` — jos tiedostot ovat samassa kansiossa  (ei alihakemistoja)
+
+Työpaja-aktiviteetin lataukseen funktio (funktio toimii, mutta Moodlesta ei tällä hetkellä saa tarvittavaa tiedostoa - tarkkaillaan!):
+- `read_directory_files_workshop()` — Moodlen workshop-aktiviteetista
+
+Näitä funktioita ei enää pitäisi tarvita, koska Moodlesta saa luettua opiskelijanumerot:
+- `read_directory_files_student_id_pages()` — opiskelija-ID-sivuista (paljon vanhempi Moodle-versio)
+- `read_users()` — opiskelija-ID-sivuista (vähän vanhempi Moodle-versio, hakee data-userid-attribuutin)
+
+---
+
+## 2. Automaattinen arviointi lyhyille tekstitehtäville
+
+
+**Tiedosto:** `helpers_autograder.R`  
+**Ajoskripti:** `run_autograder_independent_section.R`
+
+Arvioi lyhyet kirjallliset palauutukset automaattisesti kielen tunnistuksen (`cld2`) ja sanamäärän perusteella. Tuloksena kolme luokkaa:
+
+- **Hyväksytty** — suomeksi kirjoitettu ja ylittää sanamäärärajan
+- **Hylätty** — palautus tyhjä
+- **Käsin_tarkistus** — muuten (väärä kieli, liian lyhyt)
+
+### Tarvittavat syötteet
+
+- Hakemisto esseepalaututuksista (ZIP purettuna)
+- Arvioinnit-Excel — Moodlen arvioinnit (sis. `Tunnistenumero`, `Sähköpostiosoite`, `Etunimi`, `Sukunimi`)
+- `progress.csv` — Moodlen aktiviteettisuoritusraportti
+
+### Konfiguraatio (`run_autograder_independent_section.R`)
+
+```{r autograder-config}
+essay_dir_J2 <- "teemaviikkojen_arviot/tehtava_j2/"
+essay_dir_1c <- "teemaviikkojen_arviot/tehtava_1c/"
+open_exam_file <- "teemaviikkojen_arviot/1B_avotentti-vastaukset.csv"
+
+min_words_J2 <- 39   # vähimmäissanamäärä hyväksynnälle
+min_words_1c <- 25
+
+# Filtteri: keillä alkutentti on tehty
+initial_task_col <- "J1) Tentti kurssin suoritustavoista"
+initial_task_done_value <- "Suoritettu (hyväksytty arvosana)"
+
+# Poistettavat user_id:t (testitunnukset tms.)
+filter_out_ids <- c()
+```
+
+### Tulostiedostot
+
+- `itsenainen_osio_moodleen.csv` — vietään Moodleen (Arvioinnit → Tuo)
+- `manuaaliseen_tarkastukseen.csv` — käsin tarkistettavat palauutukset
+- `alkutentti_tekematta.csv` — opiskelijat jotka eivät ole aloittaneet
+
+---
+
+## 3. Esseetehtävien jakaminen arvioijille
+
+**Tiedosto:** `helpers_distribute_assignments.R`  
+**Ajoskripti:** `run_distribute_essays.R`
+
+Lukee esseepalaututukset hakemistosta, lisää tyhjät arviointisarakkeet ja jakaa opiskelijat arvioijaryhmiin (TUNI / HY, ja haluttaessa HY:n sisällä kahden arvioijan kesken).
+
+### Tarvittavat syötteet
+
+- Hakemisto esseepalaututuksista (ZIP purettuna)
+- Arvioinnit-Excel (sis. `Tunnistenumero`, `Sähköpostiosoite`, `Etunimi`, `Sukunimi`)
+
+### Konfiguraatio (`run_distribute_essays.R`)
+
+```{r distribute-essays-config}
+rubric_cols <- c(
+  "kriteeri_1",
+  "kriteeri_2",
+  "kriteeri_3",
+  "huomioita opiskelijalle",
+  "huomioita kurssinvetäjälle"
+)
+
+graders <- list(tuni = "tuni.fi", hy = "helsinki.fi")
+
+# Jaa HY-esseet kahden arvioijan kesken (NULL = ei jakoa)
+split_hy_graders <- list(arvioija1 = "arvioija1", arvioija2 = "arvioija2")
+
+# Poistettavat sähköpostiosoitteet
+excluded_emails <- c()
+
+# Nimikorjaukset jos Moodle kirjoittaa nimen eri tavalla kuin hakemistokansio
+name_corrections <- c("Moodlen Nimi" = "Oikea Nimi")
+```
+
+### Tulostiedostot
+
+- `esseet_arviointiin_tuni.xlsx`
+- `esseet_arviointiin_arvioija1.xlsx`
+- `esseet_arviointiin_arvioija2.xlsx`
+
+---
+
+## 4. Esseetehtävien kokoaminen arvioinnin jälkeen
+
+**Tiedosto:** `helpers_combine_graded.R`  
+**Ajoskripti:** `run_combine_essays.R`
+
+Kokoaa arvioijien palauttamat Excel-tiedostot, muodostaa sanallisen palautetekstin arviointikirjan perusteella ja tuottaa valmiin tiedoston Digicampukseen vientiä varten.
+
+### Tarvittavat syötteet
+
+- Hakemisto arvioitujen esseeiden Excel-tiedostoista
+- Arviointikriteerit-Excel (sarakkeet: `kriteeri`, `pisteet`, `sanallinen_arvio`)
+- Arvioinnit-Excel (sis. `Tunnistenumero`, `Sähköpostiosoite`)
+
+### Arviointikriteerit-tiedoston rakenne
+
+| kriteeri | pisteet | sanallinen_arvio |
+|---|---|---|
+| sisalto | 0 | Essee ei käsittele aihetta riittävästi. |
+| sisalto | 1 | Essee käsittelee aihetta pintapuolisesti. |
+| sisalto | 2 | Essee osoittaa hyvän ymmärryksen aiheesta. |
+| kieliasu | 0 | Kielessä on merkittäviä puutteita. |
+| kieliasu | 1 | Kieliasu on pääosin selkeä. |
+
+### Konfiguraatio (`run_combine_essays.R`)
+
+### Tulostiedostot
+
+- `kaikki_esseet_valmiit.xlsx` — täydellinen tulostaulukko
+- `kaikki_esseet_valmiit.csv` — Digicampukseen vientiä varten (WINDOWS-1252)
+
+---
+
+## 5. Avotenttivastausten jakaminen arvioijille
+
+**Tiedosto:** `helpers_distribute_assignments.R`  
+**Ajoskripti:** `run_distribute_open_exams.R`
+
+Jakaa Moodlen avotenttivastaukset arvioijille. Tukee Moodlen **korijakoa**: jos kysymyksessä 1 on useita variantteja (eri opiskelijat saavat eri kysymyksen), skripti tunnistaa korijaon automaattisesti hakusanojen perusteella.
+
+### Tarvittavat syötteet
+
+- Avotentti-vastaukset CSV (Moodle: Tentti → Tulokset → Lataa)
+- Arviointikriteerit-Excel (sarakkeet: `kori`, `kysymys`, `kriteeri`)
+
+### Korijaon konfiguraatio
+
+```{r distribute-exams-config}
+# Sarake josta korijako tunnistetaan
+kori1_keyword_col <- "Kysymys 1"
+
+# Hakusanat per kori (str_detect-haku)
+kori1_keywords <- list(
+  tutkimusasetelma    = "tutkimusasetelma",
+  tutkimuskys_ja_vast = "tutkimuskysymykset",
+  tulkinta            = "rajoitteita"
+)
+# NULL jos korijakoa ei ole
+```
+
+### Tulostiedostot (yksi Excel-tiedosto per arvioija, useita välilehtiä)
+
+- `avotentit_arvioon_tuni.xlsx`
+- `avotentit_arvioon_arvioija1.xlsx`
+- `avotentit_arvioon_arvioija2.xlsx`
+
+---
+
+## 6. Avotenttivastausten kokoaminen arvioinnin jälkeen
+
+**Tiedosto:** `helpers_combine_graded.R`  
+**Ajoskripti:** `run_combine_open_exams.R`
+
+Kokoaa arvioitujen avotenttien Excel-tiedostot, liittää sanalliset palautteet kysymyksittäin ja yhdistää per opiskelija yhdeksi palauteriviksi.
+
+### Tarvittavat syötteet
+
+- Hakemisto arvioijien palauttamista Excel-tiedostoista
+- Arviointikriteerit-Excel (sarakkeet: `kori`, `kysymys`, `kriteeri`, `pisteet`, `sanallinen_arvio`)
+- Arvioinnit-Excel (sis. `Tunnistenumero`, `Sähköpostiosoite`)
+
+### Välilehtien kuvaus (`sheet_map`)
+
+Jokainen arviointivälilehti kuvataan yhdellä alkiolla:
+
+```{r combine-exams-sheet-map}
+sheet_map <- list(
+  kori1_k1_arvioon = list(
+    id            = "kori1_tutkimusasetelma",  # arviointikirjan id (kori_kysymys)
+    label         = "tutkimusasetelma",         # arviointikirjan kysymys-arvo
+    kysymys_label = "K1"                        # lyhyt tunniste palautetekstiin
+  ),
+  kori2_arvioon = list(
+    id            = "kori2_kaikki2",
+    label         = "kaikki2",
+    kysymys_label = "K2"
+  )
+  # ... lisää korit tarvittaessa
+)
+```
+
+### Tulostiedostot
+
+- `kaikki_avotentit_valmiit.xlsx`
+- `kaikki_avotentit_valmiit.csv` (WINDOWS-1252)
+
+---
+
+## 7. Loppuarvosanojen laskenta ja SISU-vienti
+
+**Tiedosto:** `helpers_sisu_export.R`  
+**Ajoskripti:** `run_sisu_export.R`
+
+Laskee loppuarvosanat Moodlen arvioinnit-tiedostosta ja tuottaa SISU-järjestelmään vietävät CSV-tiedostot Helsingin yliopiston ja Tampereen yliopiston opiskelijoille erikseen.
+
+### Tarvittavat syötteet
+
+- Moodlen arvioinnit-Excel (Arvioinnit → Vie → Excel)
+- HY:n ilmoittautumistiedosto (TSV, UTF-16LE — haetaan WebOodista tai SISUsta)
+- TUNI:n ilmoittautumistiedosto (CSV)
+
+### Porttiehto
+
+Monet kurssit vaativat tiettyjen alkuosien suorittamista ennen kuin pisteet lasketaan arvosanaksi. Porttiehto kirjoitetaan R-lausekkeena:
+
+```{r sisu-gate}
+gate_expr <- paste0(
+  "`Tehtävä:J2) ... (Todellinen)` == 'Hyväksytty' & ",
+  "as.numeric(`Tentti:1A) ... (Todellinen)`) > 0"
+)
+# NULL = ei porttiehtoa
+```
+
+### Arvosanarajat
+
+```{r sisu-thresholds}
+grade_thresholds <- c("1" = 50, "2" = 60, "3" = 70, "4" = 80, "5" = 90)
+```
+
+### Tulostiedostot
+
+- `ongelmatapaukset_alkuosasta_tai_videosta_puuttuu.xlsx` — opiskelijat joilla pisteet riittäisivät mutta porttiehto ei täyty
+- `UH_sisu.csv` — HY:n SISU-vienti
+- `tuni_sisu.csv` — TUNI:n SISU-vienti
+
+---
+
+## 8. Plagiaatintarkistus
+
+**Tiedosto:** `helpers_plagiarism.R`
+
+Laskee tekstisamankaltaisuuden palauutetuille esseille Jaccard-samankaltaisuuden avulla ja palauttaa listauksen opiskeijapareista, joiden tekstit ovat keskenään samankaltaisia.
+
+```{r plagiarism}
+source("helpers_plagiarism.R")
+
+# Täysi analyysi hakemistosta
+epailyttavat <- do_analysis(
+  path_used = "hakemisto/esseet_arvioitavaksi/",
+  threshold = 0.3   # 0–1; mitä pienempi, sitä herkempi
+)
+
+# Tarkastele tuloksia
+epailyttavat %>% select(name, row, col)
+```
+
+Voit kokeilla eri kynnysarvoja: `threshold = 0.1` löytää enemmän pareja, `threshold = 0.5` vain selkeimmät tapaukset. Jaccard-mitta vertailee sanalistoja, ei lauseita — toimii hyvin lyhyiden tekstien seulontaan.
+
+---
+
+## 9. Moodlen kysymyspankin siistiminen
+
+**Tiedosto:** `clean_up_moodle_gift_for_human_readers.R`
+
+Muuntaa Moodlesta XML-muodossa viedyn kysymyspankin ihmisluettavaksi taulukoksi esimerkiksi käännöstyötä varten.
+
+### Työnkulku
+
+1. Vie kysymyspankki Moodlesta: Kysymyspankki → Vie → GIFT tai XML
+2. Avaa viety tiedosto Excel:ssä ja tallenna `.xlsx`-muodossa
+3. Muokkaa skriptin konfiguraatio-osio ja aja skripti
+
+```{r gift-config}
+kysymykset_tiedosto <- "matskut2023/kysym.xlsx"
+tuloste_tiedosto    <- "matskut2023/kysymykset_kaannokseen.txt"
+```
+
+Tulostiedostossa jokainen kysymys on omalla rivillään vastausvaihtoehtoineen — helppo kopioida käännöstoimistoon tai tekoälyavusteiseen käännökseen.
+
+---
+
+## Liite: Opiskelijan Tunnistenumero Arvioinnit-Excel:istä
+
+Kullakin opiskelijalla on Moodlessa numeerinen `Tunnistenumero` (`user_id`), jota tarvitaan arvosanojen Moodle-vientiä varten. Uudemmissa Moodlen versioissa tunnus löytyy suoraan **Arvioinnit-Excel:istä** (Arvioinnit → Vie → Excel). Erillistä CSV-tiedoston rakentamista ei tarvita.
+
+`read_moodle_user_ids()`-funktio lukee Arvioinnit-Excel:in ja palauttaa taulukon sarakkeilla `email`, `user_id` ja (jos saatavilla) `Nimi`:
+
+```{r user-ids}
+source("helpers_read_files.R")
+
+# Luetaan automaattisesti kun kutsutaan combine_graded_essays() tai
+# combine_graded_open_exams() — user_id_file-parametri osoittaa Arvioinnit-Excel:iin.
+
+# Voidaan myös kutsua suoraan:
+kayttaja_idt <- read_moodle_user_ids("teemaviikkojen_arviot/arvioinnit.xlsx")
+```
+
+Arvioinnit-Excel:ssä on oltava sarakkeet `Tunnistenumero` ja `Sähköpostiosoite`. Jos myös `Etunimi` ja `Sukunimi` löytyvät, funktio muodostaa niistä `Nimi`-sarakkeen automaattisesti.
+
+---
+
+## Liite: Moodle-arvosanojen massavienti
+
+Kun `run_`-skripti on tuottanut CSV-tiedoston, viedään se Moodleen seuraavasti:
+
+1. Moodle → **Arvioinnit** → **Tuo**
+2. Valitse CSV-tiedosto
+3. Varmista merkistö: **WINDOWS-1252** (kaikki skriptit kirjoittavat tässä merkistössä)
+4. Tarkista sarakkeiden vastaavuudet: `user_id` → Moodlen käyttäjätunnus
+
+Huom: Moodle hyväksyy vain `user_id`-perusteisen tuonnin, ei nimiperusteisen. Siksi kaikissa tulostiedostoissa on `user_id`-sarake.
+

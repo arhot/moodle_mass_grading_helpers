@@ -27,14 +27,8 @@ rubric_cols <- c(
   "huomioita kurssinvetäjälle"
 )
 
-# Arvioijaryhmät: merkitse domeeni tai NULL
-# Domeeni (esim. "tuni.fi") → kaikki siltä domainilta menevät omaan tiedostoon
-# NULL → saa loput; useita NULL-arvoja → loput jaetaan tasan
-graders <- list(
-  tuni      = "tuni.fi",
-  arvioija1 = NULL,
-  arvioija2 = NULL
-)
+# Arvioijien nimet – opiskelijat jaetaan tasan
+graders <- c("arvioija1", "arvioija2")
 
 # Hakemisto, johon Excel-tiedostot kirjoitetaan
 output_dir <- "teemaviikkojen_arviot/"

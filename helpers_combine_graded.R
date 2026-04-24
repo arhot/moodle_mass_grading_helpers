@@ -117,7 +117,7 @@ combine_graded_essays <- function(graded_dir,
 # criteria_file    : polku arviointikriteerit-Excel:iin
 #                    (sarakkeet: id (kori_kysymys), kriteeri, pisteet, sanallinen_arvio, kysymys, kori)
 # user_id_file     : polku Moodlen Arvioinnit-Excel:iin (sarake Tunnistenumero käytetään)
-# sheet_map        : nimetty lista muotoa list(sheet_name = list(id="kori1_k1", label="k1", kysymys_label="K1"))
+# sheet_map        : nimetty lista muotoa list(sheet_name = list(id="kori1_k1", kysymys_label="K1"))
 #                    Kukin alkio kuvaa yhden arviointivälilehden.
 # id_col           : sähköpostisarake vastauksissa (oletus: "Sähköpostiosoite")
 # comment_col      : kommenttisarake (oletus: "kommentti_opiskelijalle")
@@ -147,7 +147,6 @@ combine_graded_open_exams <- function(graded_dir,
       df                 = raw,
       arviointikriteerit = arviointikriteerit,
       kysymys_id         = meta$id,
-      kysymys_label      = meta$label,
       id_cols            = id_col,
       comment_col        = comment_col
     )

@@ -27,16 +27,15 @@ user_id_file <- "teemaviikkojen_arviot/arvioinnit.xlsx"
 #
 # sheet_name  = välilehden nimi Excel-tiedostossa (sama kuin jakoskriptissä)
 # id          = tunniste arviointikirjan id-sarakkeessa (kori_kysymys)
-# label       = arviointikirjan kysymys-sarakkeen arvo
 # kysymys_label = lyhyt tunniste palautemerkkijonoon (esim. "K1", "K2", "K3")
 #
 # Muokkaa tämä kurssin kysymysrakenteen mukaan:
 sheet_map <- list(
-  kori1_k1_arvioon = list(id = "kori1_tutkimusasetelma", label = "tutkimusasetelma", kysymys_label = "K1"),
-  kori1_k2_arvioon = list(id = "kori1_tutkimuskys_ja_vast", label = "tutkimuskys_ja_vast", kysymys_label = "K1"),
-  kori1_k3_arvioon = list(id = "kori1_tulkinta",            label = "tulkinta",            kysymys_label = "K1"),
-  kori2_arvioon    = list(id = "kori2_kaikki2",             label = "kaikki2",             kysymys_label = "K2"),
-  kori3_arvioon    = list(id = "kori3_kaikki3",             label = "kaikki3",             kysymys_label = "K3")
+  kori1_k1_arvioon = list(id = "kori1_tutkimusasetelma",     kysymys_label = "K1"),
+  kori1_k2_arvioon = list(id = "kori1_tutkimuskys_ja_vast",  kysymys_label = "K1"),
+  kori1_k3_arvioon = list(id = "kori1_tulkinta",             kysymys_label = "K1"),
+  kori2_arvioon    = list(id = "kori2_kaikki2",              kysymys_label = "K2"),
+  kori3_arvioon    = list(id = "kori3_kaikki3",              kysymys_label = "K3")
 )
 
 # Sähköpostisarakkeen nimi vastaustiedostoissa

@@ -23,10 +23,8 @@ library(tidyr)
 # arvioinnit_file  : polku Moodlen Arvioinnit-Excel:iin.
 #                    Sieltä luetaan Tunnistenumero (user_id), Sähköpostiosoite ja Nimi.
 # rubric_cols      : merkkijonovektori, arviointisarakkeiden nimet (asetetaan NA:ksi)
-# graders          : nimetty lista, jossa arvo on domeeni tai NULL.
-#                    Domeeni (esim. "tuni.fi") → kaikki siltä domainilta menevät omaan tiedostoon.
-#                    NULL → saa loput. Jos useita NULL-arvoja, loput jaetaan tasan.
-#                    Esim. list(tuni = "tuni.fi", arvioija1 = NULL, arvioija2 = NULL)
+# graders          : arvioijien nimivektori, esim. c("raakel", "aino").
+#                    Opiskelijat jaetaan tasan arvioijien kesken.
 # output_dir       : hakemisto, johon Excel-tiedostot kirjoitetaan
 # excluded_emails  : poistettavat sähköpostiosoitteet (tietosuoja: lista)
 #
@@ -34,7 +32,7 @@ library(tidyr)
 distribute_essays <- function(essay_dir,
                               arvioinnit_file,
                               rubric_cols,
-                              graders         = list(tuni = "tuni.fi", hy = NULL),
+                              graders         = c("arvioija1", "arvioija2"),
                               output_dir      = ".",
                               excluded_emails = character(0)) {
 
@@ -57,28 +55,14 @@ distribute_essays <- function(essay_dir,
   esseet <- esseet %>%
     left_join(kayttaja_idt, by = c("name" = "Nimi"))
 
-  # 6) Jaa arvioijaryhmittäin ja kirjoita tiedostot
-  domain_graders <- names(Filter(Negate(is.null), graders))
-  split_graders  <- names(Filter(is.null, graders))
-
-  matched_emails <- character(0)
-  for (nm in domain_graders) {
-    subset <- esseet %>% filter(str_detect(email, graders[[nm]]))
-    matched_emails <- c(matched_emails, subset$email)
-    write_xlsx(subset, file.path(output_dir, paste0("esseet_arviointiin_", nm, ".xlsx")))
-    message("Kirjoitettu: ", nm)
-  }
-
-  remainder <- esseet %>% filter(!email %in% matched_emails)
-  n <- nrow(remainder)
-  k <- length(split_graders)
-  if (n > 0 && k > 0) {
-    groups <- ceiling(seq_len(n) * k / n)
-    for (i in seq_along(split_graders)) {
-      write_xlsx(remainder[groups == i, ],
-                 file.path(output_dir, paste0("esseet_arviointiin_", split_graders[i], ".xlsx")))
-      message("Kirjoitettu: ", split_graders[i])
-    }
+  # 6) Jaa arvioijille tasan ja kirjoita tiedostot
+  n <- nrow(esseet)
+  k <- length(graders)
+  groups <- ceiling(seq_len(n) * k / n)
+  for (i in seq_along(graders)) {
+    write_xlsx(esseet[groups == i, ],
+               file.path(output_dir, paste0("esseet_arviointiin_", graders[i], ".xlsx")))
+    message("Kirjoitettu: ", graders[i])
   }
 
   invisible(esseet)
@@ -95,8 +79,8 @@ distribute_essays <- function(essay_dir,
 # kori1_keywords     : nimetty lista muotoa list(avain1 = "tutkimusasetelma", ...)
 #                      käytetään str_detect-hakuun. NULL = ei korijakoa.
 # drop_cols          : poistettavat sarakkeet vastaustiedostosta
-# graders            : sama rakenne kuin distribute_essays-funktiossa
-#                      Esim. list(tuni = "tuni.fi", arvioija1 = NULL, arvioija2 = NULL)
+# graders            : arvioijien nimivektori, esim. c("raakel", "aino").
+#                      Opiskelijat jaetaan tasan arvioijien kesken.
 # output_dir         : hakemisto, johon Excel-tiedostot kirjoitetaan
 #
 # Sivuvaikutus: kirjoittaa Excel-tiedostot (yksi per arvioija, monta välilehteä)
@@ -106,7 +90,7 @@ distribute_open_exams <- function(answers_file,
                                   kori1_keywords    = NULL,
                                   drop_cols         = c("Tila", "Aloitettiin", "Suoritettu",
                                                         "Suorituskerran kesto", "Arvosana/18"),
-                                  graders           = list(tuni = "tuni.fi", hy = NULL),
+                                  graders           = c("arvioija1", "arvioija2"),
                                   output_dir        = ".") {
 
   kaikki_vastaukset  <- read_csv(answers_file, show_col_types = FALSE)
@@ -169,32 +153,16 @@ distribute_open_exams <- function(answers_file,
     }
   }
 
-  # Jaa arvioijaryhmittäin
-  domain_graders <- names(Filter(Negate(is.null), graders))
-  split_graders  <- names(Filter(is.null, graders))
-
-  matched_emails <- character(0)
-  for (nm in domain_graders) {
-    domain        <- graders[[nm]]
-    subset_sheets <- lapply(sheets, function(df) df %>% filter(str_detect(Sähköpostiosoite, domain)))
-    matched_emails <- c(matched_emails,
-                        unique(unlist(lapply(subset_sheets, `[[`, "Sähköpostiosoite"))))
-    write_xlsx(subset_sheets, path = file.path(output_dir, paste0("avotentit_arvioon_", nm, ".xlsx")))
-    message("Kirjoitettu: ", nm)
-  }
-
-  remainder_sheets <- lapply(sheets, function(df) df %>% filter(!Sähköpostiosoite %in% matched_emails))
-  remainder_emails <- unique(unlist(lapply(remainder_sheets, `[[`, "Sähköpostiosoite")))
-  n <- length(remainder_emails)
-  k <- length(split_graders)
-  if (n > 0 && k > 0) {
-    groups <- ceiling(seq_len(n) * k / n)
-    for (i in seq_along(split_graders)) {
-      grp_emails <- remainder_emails[groups == i]
-      subset     <- lapply(remainder_sheets, function(df) df %>% filter(Sähköpostiosoite %in% grp_emails))
-      write_xlsx(subset, path = file.path(output_dir, paste0("avotentit_arvioon_", split_graders[i], ".xlsx")))
-      message("Kirjoitettu: ", split_graders[i])
-    }
+  # Jaa arvioijille tasan ja kirjoita tiedostot
+  all_emails <- unique(unlist(lapply(sheets, `[[`, "Sähköpostiosoite")))
+  n <- length(all_emails)
+  k <- length(graders)
+  groups <- ceiling(seq_len(n) * k / n)
+  for (i in seq_along(graders)) {
+    grp_emails <- all_emails[groups == i]
+    subset     <- lapply(sheets, function(df) df %>% filter(Sähköpostiosoite %in% grp_emails))
+    write_xlsx(subset, path = file.path(output_dir, paste0("avotentit_arvioon_", graders[i], ".xlsx")))
+    message("Kirjoitettu: ", graders[i])
   }
 
   invisible(sheets)

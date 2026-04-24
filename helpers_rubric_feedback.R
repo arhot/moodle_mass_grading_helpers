@@ -126,10 +126,11 @@ combine_numerical_grades_with_verbal_feedback <- function(
 # comment_col      : valinnainen kommenttisarake, joka lisätään palautteen loppuun
 #
 # Palauttaa data framen: id_cols + value_* + sanallinen_arvio_* + pisteet + sanallinen_palaute
-process_question <- function(df, arviointikriteerit, kysymys_id, kysymys_label,
+process_question <- function(df, arviointikriteerit, kysymys_id,
                              id_cols     = "Sähköpostiosoite",
                              comment_col = "kommentti_opiskelijalle") {
   has_comment <- comment_col %in% names(df)
+  kysymys_label <- str_remove(kysymys_id, "^[^_]+_")
 
   criteria      <- arviointikriteerit %>%
     filter(str_detect(id, kysymys_id)) %>%

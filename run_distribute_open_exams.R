@@ -37,14 +37,8 @@ kori1_keywords <- list(
 drop_cols <- c("Tila", "Aloitettiin", "Suoritettu", "Suorituskerran kesto")
 # Lisää tarvittaessa: c(..., "Arvosana/18")
 
-# Arvioijaryhmät: merkitse domeeni tai NULL
-# Domeeni (esim. "tuni.fi") → kaikki siltä domainilta menevät omaan tiedostoon
-# NULL → saa loput; useita NULL-arvoja → loput jaetaan tasan
-graders <- list(
-  tuni      = "tuni.fi",
-  arvioija1 = NULL,
-  arvioija2 = NULL
-)
+# Arvioijien nimet – opiskelijat jaetaan tasan
+graders <- c("arvioija1", "arvioija2")
 
 # Hakemisto, johon Excel-tiedostot kirjoitetaan
 output_dir <- "teemaviikkojen_arviot/"
